@@ -14,7 +14,7 @@ I created a multi-stage build to reduce the complexity and attack surface of the
 # 2. Frontend
 Given the frontend serves static files there's minimal work required. It would require the creation and configuration of the following:
 * Private S3 Bucket - File store backing Cloudfront with the latest files.
-* Cloudfront - Managing domain name, TLS, security headers, caching
+* Cloudfront - Managing domain name, TLS, security headers, caching, API request routing
 * IAM - appropriate roles/policies required for Cloudfront to access the secured S3 bucket.
 
 # 3. CI Pipeline
@@ -26,6 +26,7 @@ Ways the pipeline could be improved:
 - Add scheduled scans of the images
 - Implementing caching for build dependencies and Docker layers
 - Add safety measures to pipeline e.g. job timeouts
+- Tool choices e.g. OCI build could fail if Docker daemon not present in jobs runners (Kaniko or AWS CodeBuild)
 
 # 4. Observability
 Currently the only visibility into the app is the health endpoint and some unstructured console logs, which is insufficent to understand the state of the app.
@@ -37,6 +38,7 @@ What's needed:
 - Frontend error tracking - errors on a users browswer should have visibility.
 - Backup monitoring - alerting if the DB backups fails.
 - Frontend to API correlation - pass trace context from the SPA to the API.
+- Centralised log/trace/metric solution with dashboarding and alerts.
 
 Changes to the implementation:
 - Split the health check into liveness and readiness endpoints.
@@ -46,10 +48,12 @@ Changes to the implementation:
 - Return a request ID on API responses and include it in frontend error reports.
 
 # 5. Scaling to 20 Engineers
-Scaling from 4 to 20 engineers will mandate trading some flexibility and speed for ridgity (in the right areas) and repeatability. This will ensure that engineers.
+Scaling from 4 to 20 engineers will mandate trading some flexibility and speed for ridgity (in the right areas) and repeatability. I would look to implement controls around configuration, infra, codebase and deployment states as well as implementing standards libraries.
 
 Things SRE would need to implement:
 - Golden paths - for Dockerfile, CI, Deno common libraries will need to be implemented to allow for consistency and maintainability of our surrounding infrasturcture.
 - Infrastructure as Code - Terraform/CDK/OpenTofu versioned modules created and centrally maintained state files to ensure infra is deployed as expected.
-- Branch protection and stratergies - Selecting a branching stratergy and then enforcing branch/merge rules is critical to avoid constant conflicts.
+- Branch protection and stratergies - Selecting a branching stratergy and then enforcing branch/merge rules is critical to avoid constant conflicts. The branching stratergy should also align with testing processes.
 - Automated Dependency Management - Renovate or other to maintain the services dependencies.
+- Alerts/Notifications - Centeralising the reporting of deployments to aide in production support or alerting on newly discovered security issues.
+- Documentation - providing information to assist new developers and giving context to those troubleshooting the app.
