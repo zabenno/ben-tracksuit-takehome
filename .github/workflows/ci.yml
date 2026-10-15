@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}/insights-server:${{ github.sha }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: deno install --frozen
+      - run: deno fmt --check
+      - run: deno lint
+      - run: deno check .
+      - run: deno task test
+        working-directory: server
+      - run: deno task test
+        working-directory: client
+      - run: deno task build
+        working-directory: client
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-build
+          path: client/build/
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f server/Dockerfile -t "$IMAGE" .
+
+      - name: Smoke test
+        run: |
+          docker run -d --name smoke --read-only --cap-drop=ALL \
+            -v data:/data -p 8080:8080 "$IMAGE"
+          sleep 3
+          docker logs smoke
+          curl -fsS localhost:8080/_health
+          curl -fsS localhost:8080/insights
+
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+      - run: docker save "$IMAGE" -o image.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-image
+          path: image.tar
+          retention-days: 1
+
+  publish:
+    needs: [test, image]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: server-image
+      - run: docker load -i image.tar
+      - name: Push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE"
+
+  deploy-staging:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-build
+      - run: |
+          echo "Would deploy $IMAGE to staging (single replica: stop, then start)"
+          echo "Would upload client: assets/ cached immutable, then index.html no-cache"
+          echo "Would smoke test https://staging.example.com/api/_health"
+
+  deploy-production:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: echo "Would promote $IMAGE and the same client bundle to production"
